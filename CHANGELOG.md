@@ -6,16 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project mostly adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
 however, insignificant breaking changes do not guarantee a major version bump, see the reasoning [here](https://github.com/kyb3r/modmail/issues/319). If you're a plugin developer, note the "BREAKING" section.
 
-# v3.10.0-dev3
+# v3.10.0-dev4
+
+v3.10 adds group conversations while resolving othre bugs and QOL changes. It is potentially breaking to some plugins that adds functionality to threads.
+
+## Breaking
+
+- `Thread.recipient` (`str`) is now `Thread.recipients` (`List[str]`).
 
 ## Added
 
 - Ability to have group conversations. ([GH #143](https://github.com/kyb3r/modmail/issues/143))
+- Snippets are invoked case insensitively. ([GH #3077](https://github.com/kyb3r/modmail/issues/3077), [PR #3080](https://github.com/kyb3r/modmail/pull/3080))
 
 ## Fixed
 
 - Certain situations where the internal thread cache breaks and spams new channels. ([GH #3022](https://github.com/kyb3r/modmail/issues/3022), [PR #3028](https://github.com/kyb3r/modmail/pull/3028))
 - Blocked users are now no longer allowed to use `?contact` and react to contact. ([COMMENT #819004157](https://github.com/kyb3r/modmail/issues/2969#issuecomment-819004157), [PR #3027](https://github.com/kyb3r/modmail/pull/3027))
+- UnicodeEncodeError will no longer be raised on Windows. ([PR #3043](https://github.com/kyb3r/modmail/pull/3043))
+- Notifications are no longer duplicated when using both `?notify` and `subscribe`. ([PR #3015](https://github.com/kyb3r/modmail/pull/3015))
+- `?contact` now works properly with both category and silent. ([GH #3076](https://github.com/kyb3r/modmail/issues/3076))
+- `close_on_leave_reason` now works properly when `close_on_leave` is enabled. ([GH #3075](https://github.com/kyb3r/modmail/issues/3075))
+- Invalid arguments are now properly catched and a proper error message is sent.
+
+## Internal
+
+- `thread.reply` now returns mod_message, user_message1, user_message2... It is no longer limited at a size 2 tuple. Potentially breaking if plugins depend on this behaviour.
+- Fix return types, type hints, and unresolved references ([PR #3009](https://github.com/kyb3r/modmail/pull/3009))
+
+# v3.9.5
+
+## Internal
+
+- Bumped discord.py to v1.7.3, updated all other packages to latest.
+- More debug log files are now kept.
+- Resolve SSL errors by retrying without SSL
 
 # v3.9.4
 

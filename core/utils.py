@@ -218,9 +218,7 @@ def cleanup_code(content: str) -> str:
     return content.strip("` \n")
 
 
-TOPIC_OTHER_RECIPIENTS_REGEX = re.compile(
-    r"Other Recipients:\s*((?:\d{17,21},*)+)", flags=re.IGNORECASE
-)
+TOPIC_OTHER_RECIPIENTS_REGEX = re.compile(r"Other Recipients:\s*((?:\d{17,21},*)+)", flags=re.IGNORECASE)
 TOPIC_TITLE_REGEX = re.compile(r"\bTitle: (.*)\n(?:User ID: )\b", flags=re.IGNORECASE | re.DOTALL)
 TOPIC_UID_REGEX = re.compile(r"\bUser ID:\s*(\d{17,21})\b", flags=re.IGNORECASE)
 
@@ -379,8 +377,7 @@ def format_channel_name(bot, author, exclude_channel=None, force_null=False):
                 name = "null"
 
             name = new_name = (
-                "".join(l for l in name if l not in string.punctuation and l.isprintable())
-                or "null"
+                "".join(l for l in name if l not in string.punctuation and l.isprintable()) or "null"
             ) + f"-{author.discriminator}"
 
     counter = 1
