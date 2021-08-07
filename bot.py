@@ -1,4 +1,4 @@
-__version__ = "v3.10.0-dev4"
+__version__ = "v3.10.0-dev5"
 
 
 import asyncio
@@ -74,6 +74,7 @@ class ModmailBot(commands.Bot):
         self.loaded_cogs = ["cogs.modmail", "cogs.plugins", "cogs.utility"]
         self._connected = asyncio.Event()
         self.start_time = datetime.utcnow()
+        self._started = False
 
         self.config = ConfigManager(self)
         self.config.populate_cache()
@@ -534,6 +535,13 @@ class ModmailBot(commands.Bot):
             logger.error("Logging out due to invalid GUILD_ID.")
             return await self.close()
 
+        if self._started:
+            # Bot has started before
+            logger.line()
+            logger.warning("Bot restarted due to internal discord reloading.")
+            logger.line()
+            return
+
         logger.line()
         logger.debug("Client ready.")
         logger.info("Logged in as: %s", self.user)
@@ -633,6 +641,8 @@ class ModmailBot(commands.Bot):
                 ", ".join(guild.name for guild in other_guilds),
             )
             logger.warning("If the external servers are valid, you may ignore this message.")
+
+        self._started = True
 
     async def convert_emoji(self, name: str) -> str:
         ctx = SimpleNamespace(bot=self, guild=self.modmail_guild)
@@ -1255,7 +1265,7 @@ class ModmailBot(commands.Bot):
             if not thread.recipient.dm_channel:
                 await thread.recipient.create_dm()
             try:
-                linked_message = await thread.find_linked_message_from_dm(message, either_direction=True)
+                linked_messages = await thread.find_linked_message_from_dm(message, either_direction=True)
             except ValueError as e:
                 logger.warning("Failed to find linked message for reactions: %s", e)
                 return
@@ -1264,19 +1274,19 @@ class ModmailBot(commands.Bot):
             if not thread:
                 return
             try:
-                _, *linked_message = await thread.find_linked_messages(message.id, either_direction=True)
+                _, *linked_messages = await thread.find_linked_messages(message.id, either_direction=True)
             except ValueError as e:
                 logger.warning("Failed to find linked message for reactions: %s", e)
                 return
 
-        if self.config["transfer_reactions"] and linked_message is not [None]:
+        if self.config["transfer_reactions"] and linked_messages is not [None]:
             if payload.event_type == "REACTION_ADD":
-                for msg in linked_message:
+                for msg in linked_messages:
                     await self.add_reaction(msg, reaction)
                 await self.add_reaction(message, reaction)
             else:
                 try:
-                    for msg in linked_message:
+                    for msg in linked_messages:
                         await msg.remove_reaction(reaction, self.user)
                     await message.remove_reaction(reaction, self.user)
                 except (discord.HTTPException, discord.InvalidArgument) as e:
@@ -1420,13 +1430,6 @@ class ModmailBot(commands.Bot):
 
         thread = await self.threads.find(channel=message.channel)
         if not thread:
-            return
-
-        audit_logs = self.modmail_guild.audit_logs(limit=10, action=discord.AuditLogAction.message_delete)
-
-        entry = await audit_logs.find(lambda a: a.target == self.user)
-
-        if entry is None:
             return
 
         try:
