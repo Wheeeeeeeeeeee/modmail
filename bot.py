@@ -1,4 +1,4 @@
-__version__ = "v3.10.0-dev5"
+__version__ = "3.10.0-dev8"
 
 
 import asyncio
@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import signal
+import string
 import sys
 import typing
 from datetime import datetime
@@ -1415,11 +1416,12 @@ class ModmailBot(commands.Bot):
             if not thread:
                 return
             try:
-                message = await thread.find_linked_message_from_dm(message)
+                message = await thread.find_linked_message_from_dm(message, get_thread_channel=True)
             except ValueError as e:
                 if str(e) != "Thread channel message not found.":
                     logger.debug("Failed to find linked message to delete: %s", e)
                 return
+            message = message[0]
             embed = message.embeds[0]
             embed.set_footer(text=f"{embed.footer.text} (deleted)", icon_url=embed.footer.icon_url)
             await message.edit(embed=embed)
@@ -1643,6 +1645,36 @@ class ModmailBot(commands.Bot):
             logger.warning("GitHub access token not found.")
             logger.warning("Autoupdates disabled.")
             self.autoupdate_loop.cancel()
+
+    def format_channel_name(self, author, exclude_channel=None, force_null=False):
+        """Sanitises a username for use with text channel names
+
+        Placed in main bot class to be extendable to plugins"""
+        guild = self.modmail_guild
+
+        if force_null:
+            name = new_name = "null"
+        else:
+            if self.config["use_user_id_channel_name"]:
+                name = new_name = str(author.id)
+            elif self.config["use_timestamp_channel_name"]:
+                name = new_name = author.created_at.isoformat(sep="-", timespec="minutes")
+            else:
+                name = author.name.lower()
+                if force_null:
+                    name = "null"
+
+                name = new_name = (
+                    "".join(l for l in name if l not in string.punctuation and l.isprintable()) or "null"
+                ) + f"-{author.discriminator}"
+
+        counter = 1
+        existed = set(c.name for c in guild.text_channels if c != exclude_channel)
+        while new_name in existed:
+            new_name = f"{name}_{counter}"  # multiple channels with same name
+            counter += 1
+
+        return new_name
 
 
 def main():
