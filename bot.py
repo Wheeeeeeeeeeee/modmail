@@ -1,4 +1,4 @@
-__version__ = "3.10.0-dev9"
+__version__ = "3.10.0-dev10"
 
 
 import asyncio
@@ -286,7 +286,6 @@ class ModmailBot(commands.Bot):
                     loop.run_until_complete(loop.shutdown_asyncgens())
             finally:
                 logger.info("Closing the event loop.")
-                # loop.close()
 
         if not future.cancelled():
             try:
@@ -1033,20 +1032,20 @@ class ModmailBot(commands.Bot):
         alias = self.auto_triggers[trigger]
 
         ctxs = []
+
         if alias is not None:
             ctxs = []
             aliases = normalize_alias(alias)
             if not aliases:
                 logger.warning("Alias %s is invalid as called in autotrigger.", invoker)
 
-            for alias in aliases:
-                view = StringView(invoked_prefix + alias)
-                ctx_ = cls(prefix=self.prefix, view=view, bot=self, message=message)
-                ctx_.thread = thread
-                discord.utils.find(view.skip_string, await self.get_prefix())
-                ctx_.invoked_with = view.get_word().lower()
-                ctx_.command = self.all_commands.get(ctx_.invoked_with)
-                ctxs += [ctx_]
+        message.author = thread.recipient  # Allow for get_contexts to work
+
+        for alias in aliases:
+            message.content = invoked_prefix + alias
+            ctxs += await self.get_contexts(message)
+
+        message.author = self.modmail_guild.me  # Fix message so commands execute properly
 
         for ctx in ctxs:
             if ctx.command:
