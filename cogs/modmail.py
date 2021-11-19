@@ -918,7 +918,7 @@ class Modmail(commands.Cog):
 
             tag = self.bot.config["mod_tag"]
             if tag is None:
-                tag = str(get_top_hoisted_role(ctx.author))
+                tag = str(get_top_role(ctx.author, self.bot.config["use_hoisted_top_role"]))
             name = self.bot.config["anon_username"]
             if name is None:
                 name = tag
@@ -1003,7 +1003,7 @@ class Modmail(commands.Cog):
 
             tag = self.bot.config["mod_tag"]
             if tag is None:
-                tag = str(get_top_hoisted_role(ctx.author))
+                tag = str(get_top_role(ctx.author, self.bot.config["use_hoisted_top_role"]))
             name = self.bot.config["anon_username"]
             if name is None:
                 name = tag
@@ -1053,7 +1053,7 @@ class Modmail(commands.Cog):
             thread = ctx.thread
             if not thread:
                 raise commands.MissingRequiredArgument(SimpleNamespace(name="member"))
-            user = thread.recipient or await self.bot.fetch_user(thread.id)
+            user = thread.recipient or await self.bot.get_or_fetch_user(thread.id)
 
         default_avatar = "https://cdn.discordapp.com/embed/avatars/0.png"
         icon_url = getattr(user, "avatar_url", default_avatar)
@@ -1362,9 +1362,16 @@ class Modmail(commands.Cog):
         """
         silent = False
         if isinstance(category, str):
-            if "silent" in category or "silently" in category:
+            category = category.split()
+
+            # just check the last element in the list
+            if category[-1].lower() in ("silent", "silently"):
                 silent = True
-                category = category.strip("silently").strip("silent").strip()
+                # remove the last element as we no longer need it
+                category.pop()
+
+            category = " ".join(category)
+            if category:
                 try:
                     category = await SimilarCategoryConverter().convert(
                         ctx, category
@@ -1503,15 +1510,12 @@ class Modmail(commands.Cog):
                     logger.debug("No longer blocked, user %s.", id_)
                     continue
 
-            user = self.bot.get_user(int(id_))
-            if user:
-                users.append((user.mention, reason))
+            try:
+                user = await self.bot.get_or_fetch_user(int(id_))
+            except discord.NotFound:
+                users.append((id_, reason))
             else:
-                try:
-                    user = await self.bot.fetch_user(id_)
-                    users.append((user.mention, reason))
-                except discord.NotFound:
-                    users.append((id_, reason))
+                users.append((user.mention, reason))
 
         blocked_roles = list(self.bot.blocked_roles.items())
         for id_, reason in blocked_roles:
@@ -1848,10 +1852,10 @@ class Modmail(commands.Cog):
                 and message.embeds[0].color.value == self.bot.main_color
                 and message.embeds[0].footer.text
             ):
-                user_id = match_user_id(message.embeds[0].footer.text)
+                user_id = match_user_id(message.embeds[0].footer.text, any_string=True)
                 other_recipients = match_other_recipients(ctx.channel.topic)
                 for n, uid in enumerate(other_recipients):
-                    other_recipients[n] = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
+                    other_recipients[n] = await self.bot.get_or_fetch_user(uid)
 
                 if user_id != -1:
                     recipient = self.bot.get_user(user_id)
@@ -1904,7 +1908,7 @@ class Modmail(commands.Cog):
 
                 other_recipients = match_other_recipients(ctx.channel.topic)
                 for n, uid in enumerate(other_recipients):
-                    other_recipients[n] = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
+                    other_recipients[n] = await self.bot.get_or_fetch_user(uid)
 
                 if recipient is None:
                     self.bot.threads.cache[user.id] = thread = Thread(

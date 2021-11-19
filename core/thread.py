@@ -17,11 +17,11 @@ from core.time import human_timedelta
 from core.utils import (
     is_image_url,
     days,
+    parse_channel_topic,
     match_title,
     match_user_id,
-    match_other_recipients,
     truncate,
-    get_top_hoisted_role,
+    get_top_role,
     create_thread_channel,
     get_joint_id,
 )
@@ -119,19 +119,18 @@ class Thread:
 
     @classmethod
     async def from_channel(cls, manager: "ThreadManager", channel: discord.TextChannel) -> "Thread":
-        recipient_id = match_user_id(
-            channel.topic
-        )  # there is a chance it grabs from another recipient's main thread
+        # there is a chance it grabs from another recipient's main thread
+        _, recipient_id, other_ids = parse_channel_topic(channel.topic)
 
         if recipient_id in manager.cache:
             thread = manager.cache[recipient_id]
         else:
-            recipient = manager.bot.get_user(recipient_id) or await manager.bot.fetch_user(recipient_id)
+            recipient = await manager.bot.get_or_fetch_user(recipient_id)
 
             other_recipients = []
-            for uid in match_other_recipients(channel.topic):
+            for uid in other_ids:
                 try:
-                    other_recipient = manager.bot.get_user(uid) or await manager.bot.fetch_user(uid)
+                    other_recipient = await manager.bot.get_or_fetch_user(uid)
                 except discord.NotFound:
                     continue
                 other_recipients.append(other_recipient)
@@ -321,7 +320,7 @@ class Thread:
         created = str((time - user.created_at).days)
         user_info = []
         if self.bot.config["thread_show_account_age"]:
-            user_info.append(f"was created {days(created)}")
+            user_info.append(f" was created {days(created)}")
 
         embed = discord.Embed(color=color, description=user.mention, timestamp=time)
 
@@ -938,7 +937,7 @@ class Thread:
                 # Anonymously sending to the user.
                 tag = self.bot.config["mod_tag"]
                 if tag is None:
-                    tag = str(get_top_hoisted_role(author))
+                    tag = str(get_top_role(author, self.bot.config["use_hoisted_top_role"]))
                 name = self.bot.config["anon_username"]
                 if name is None:
                     name = tag
@@ -1055,7 +1054,7 @@ class Thread:
             elif not anonymous:
                 mod_tag = self.bot.config["mod_tag"]
                 if mod_tag is None:
-                    mod_tag = str(get_top_hoisted_role(message.author))
+                    mod_tag = str(get_top_role(message.author, self.bot.config["use_hoisted_top_role"]))
                 embed.set_footer(text=mod_tag)  # Normal messages
             else:
                 embed.set_footer(text=self.bot.config["anon_tag"])
@@ -1136,10 +1135,16 @@ class Thread:
         return " ".join(set(mentions))
 
     async def set_title(self, title: str) -> None:
-        user_id = match_user_id(self.channel.topic)
-        ids = ",".join(i.id for i in self._other_recipients)
+        topic = f"Title: {title}\n"
 
-        await self.channel.edit(topic=f"Title: {title}\nUser ID: {user_id}\nOther Recipients: {ids}")
+        user_id = match_user_id(self.channel.topic)
+        topic += f"User ID: {user_id}"
+
+        if self._other_recipients:
+            ids = ",".join(str(i.id) for i in self._other_recipients)
+            topic += f"\nOther Recipients: {ids}"
+
+        await self.channel.edit(topic=topic)
 
     async def _update_users_genesis(self):
         genesis_message = await self.get_genesis_message()
@@ -1162,24 +1167,37 @@ class Thread:
         await genesis_message.edit(embed=embed)
 
     async def add_users(self, users: typing.List[typing.Union[discord.Member, discord.User]]) -> None:
-        title = match_title(self.channel.topic)
-        user_id = match_user_id(self.channel.topic)
+        topic = ""
+        title, user_id, _ = parse_channel_topic(self.channel.topic)
+        if title is not None:
+            topic += f"Title: {title}\n"
+
+        topic += f"User ID: {user_id}"
+
         self._other_recipients += users
-
         ids = ",".join(str(i.id) for i in self._other_recipients)
-        await self.channel.edit(topic=f"Title: {title}\nUser ID: {user_id}\nOther Recipients: {ids}")
 
+        topic += f"\nOther Recipients: {ids}"
+
+        await self.channel.edit(topic=topic)
         await self._update_users_genesis()
 
     async def remove_users(self, users: typing.List[typing.Union[discord.Member, discord.User]]) -> None:
-        title = match_title(self.channel.topic)
-        user_id = match_user_id(self.channel.topic)
+        topic = ""
+        title, user_id, _ = parse_channel_topic(self.channel.topic)
+        if title is not None:
+            topic += f"Title: {title}\n"
+
+        topic += f"User ID: {user_id}"
+
         for u in users:
             self._other_recipients.remove(u)
 
-        ids = ",".join(str(i.id) for i in self._other_recipients)
-        await self.channel.edit(topic=f"Title: {title}\nUser ID: {user_id}\nOther Recipients: {ids}")
+        if self._other_recipients:
+            ids = ",".join(str(i.id) for i in self._other_recipients)
+            topic += f"\nOther Recipients: {ids}"
 
+        await self.channel.edit(topic=topic)
         await self._update_users_genesis()
 
 
@@ -1240,16 +1258,24 @@ class ThreadManager:
                     await thread.close(closer=self.bot.user, silent=True, delete_channel=False)
                     thread = None
         else:
+
+            def check(topic):
+                _, user_id, other_ids = parse_channel_topic(topic)
+                return recipient_id == user_id or recipient_id in other_ids
+
             channel = discord.utils.find(
-                lambda x: str(recipient_id) in x.topic if x.topic else False,
+                lambda x: (check(x.topic)) if x.topic else False,
                 self.bot.modmail_guild.text_channels,
             )
 
             if channel:
                 thread = await Thread.from_channel(self, channel)
                 if thread.recipient:
-                    # only save if data is valid
-                    self.cache[recipient_id] = thread
+                    # only save if data is valid.
+                    # also the recipient_id here could belong to other recipient,
+                    # it would be wrong if we set it as the dict key,
+                    # so we use the thread id instead
+                    self.cache[thread.id] = thread
                 thread.ready = True
 
         if thread and recipient_id not in [x.id for x in thread.recipients]:
@@ -1265,10 +1291,11 @@ class ThreadManager:
         searching channel history for genesis embed and
         extracts user_id from that.
         """
-        user_id = -1
 
-        if channel.topic:
-            user_id = match_user_id(channel.topic)
+        if not channel.topic:
+            return None
+
+        _, user_id, other_ids = parse_channel_topic(channel.topic)
 
         if user_id == -1:
             return None
@@ -1277,14 +1304,14 @@ class ThreadManager:
             return self.cache[user_id]
 
         try:
-            recipient = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+            recipient = await self.bot.get_or_fetch_user(user_id)
         except discord.NotFound:
             recipient = None
 
         other_recipients = []
-        for uid in match_other_recipients(channel.topic):
+        for uid in other_ids:
             try:
-                other_recipient = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
+                other_recipient = await self.bot.get_or_fetch_user(uid)
             except discord.NotFound:
                 continue
             other_recipients.append(other_recipient)
